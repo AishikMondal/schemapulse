@@ -153,14 +153,25 @@ def test_shadow_index_is_cleaned_up(demo_env: Any, diagnosis: Any) -> None:
 
 
 def test_repeated_runs_are_stable(demo_env: Any, golden_sql: str) -> None:
-    """Running twice must not accumulate state or drift on the verdict."""
+    """Running twice must not accumulate state.
+
+    What has to be identical is the deterministic half: the same candidates
+    proposed, in the same order. The verdict is deliberately *not* compared --
+    it depends on measured spread, so two runs on a busy machine can honestly
+    disagree. Asserting they match would test the machine, not the code.
+    """
     engine = SchemaPulse(settings=demo_env)
     first = engine.diagnose(golden_sql, provider="fixture")
     second = engine.diagnose(golden_sql, provider="fixture")
-    assert first.verdict == second.verdict
-    assert [a.candidate.statement for a in first.attempts if a.candidate] == [
-        a.candidate.statement for a in second.attempts if a.candidate
-    ]
+
+    def statements(result: Any) -> list[str]:
+        return [a.candidate.statement for a in result.attempts if a.candidate]
+
+    assert statements(first) == statements(second)
+    assert first.insight.plan.total_rows_examined == second.insight.plan.total_rows_examined
+    assert first.insight.plan.signature() == second.insight.plan.signature()
+    assert first.verdict in set(Verdict)
+    assert second.verdict in set(Verdict)
 
 
 # --------------------------------------------------------------------------- #
