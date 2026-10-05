@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from schemapulse.config import Settings
@@ -13,7 +15,16 @@ from schemapulse.errors import ConfigurationError
 
 
 @pytest.fixture
-def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def clean_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Make ``Settings()`` see nothing at all, the way a fresh clone would.
+
+    Deleting the process variables is not enough on its own. ``Settings`` also
+    reads a ``.env`` file from the current working directory, and anyone who has
+    followed the README has one — with ``SCHEMAPULSE_MODEL_PROVIDER=gemini`` and
+    a real key in it. Without the chdir below, every "default is offline"
+    assertion fails on exactly the machine that has configured the tool, and
+    passes on a machine that has not, which is the worst possible split.
+    """
     for key in (
         "GEMINI_API_KEY",
         "OLLAMA_BASE_URL",
@@ -25,6 +36,9 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "SCHEMAPULSE_QUERY_TIMEOUT_MS",
     ):
         monkeypatch.delenv(key, raising=False)
+    # ``env_file=".env"`` is resolved relative to the cwd, so an empty directory
+    # is a faithful stand-in for a checkout that has no .env yet.
+    monkeypatch.chdir(tmp_path)
 
 
 def test_defaults_are_offline_and_safe(clean_env: None) -> None:
@@ -136,7 +150,7 @@ def test_default_shadow_is_a_separate_port(clean_env: None) -> None:
     assert s.shadow_database_url.endswith(":5433/schemapulse")
 
 
-def test_shipped_default_ollama_model_exists_in_the_registry() -> None:
+def test_shipped_default_ollama_model_exists_in_the_registry(clean_env: None) -> None:
     """Guard against pointing at a tag that `ollama pull` cannot resolve.
 
     ``gemma4:*`` is not published to the Ollama registry; a default naming it
