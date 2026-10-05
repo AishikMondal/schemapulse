@@ -242,7 +242,19 @@ def _safe_error(text: str) -> str:
 
 
 def _clean_schema(schema: dict[str, Any]) -> dict[str, Any]:
-    """Strip Pydantic keywords the Gemini schema validator does not accept."""
+    """Rewrite the Pydantic-generated schema into the subset Gemini accepts.
+
+    Two classes of problem, both of which the API rejects with an opaque HTTP 400
+    naming an internal path rather than anything the caller can act on:
+
+    * keywords it does not know (``title``, ``default``, ``description``, ...), and
+    * ``const``, which Pydantic emits for a single-valued ``Literal``. Gemini
+      supports ``enum`` but not ``const``, so ``Literal["index"]`` has to become
+      ``{"enum": ["index"]}`` or every single request fails.
+
+    ``$defs`` is kept during the walk and resolved afterwards, because inlining a
+    ``$ref`` needs the definitions table still to be present.
+    """
     unsupported = {
         "additionalProperties",
         "title",
@@ -253,15 +265,29 @@ def _clean_schema(schema: dict[str, Any]) -> dict[str, Any]:
     }
 
     def walk(node: Any) -> Any:
-        if isinstance(node, dict):
-            return {k: walk(v) for k, v in node.items() if k not in unsupported}
         if isinstance(node, list):
             return [walk(v) for v in node]
-        return node
+        if not isinstance(node, dict):
+            return node
+
+        const = node.get("const")
+        out: dict[str, Any] = {}
+        for key, value in node.items():
+            if key == "const":
+                # Emitted after the loop so it never lands as a bare `const`.
+                continue
+            if key in unsupported:
+                continue
+            out[key] = walk(value)
+        if const is not None:
+            out["enum"] = [const]
+        elif "enum" in node:
+            out["enum"] = [walk(v) for v in node["enum"]]
+        return out
 
     cleaned = walk(schema)
-    if "$defs" in cleaned:
-        defs = cleaned.pop("$defs")
+    defs = cleaned.pop("$defs", None)
+    if defs:
         cleaned = _inline_defs(cleaned, defs)
     return cleaned
 
