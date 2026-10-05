@@ -239,6 +239,62 @@ def test_partial_indexes_can_be_disabled(snapshot: SchemaSnapshot) -> None:
     assert "partial indexes are disabled" in rep.reason_text
 
 
+# --------------------------------------------------------------------------- #
+# access methods
+# --------------------------------------------------------------------------- #
+def test_accepts_the_canonical_statement_without_a_using_clause(snapshot: SchemaSnapshot) -> None:
+    rep = check("CREATE INDEX ix ON orders (status, created_at DESC)", snapshot)
+    assert rep.ok, rep.reason_text
+    assert "USING" not in rep.execution_sql.upper()
+
+
+def test_accepts_an_explicit_using_btree(snapshot: SchemaSnapshot) -> None:
+    """``btree`` is PostgreSQL's default, so naming it changes nothing.
+
+    A model that writes it is not doing anything unsafe, and rejecting it burned
+    real attempts during the Ollama rehearsal.
+    """
+    rep = check("CREATE INDEX ix ON orders USING btree (status, created_at DESC)", snapshot)
+    assert rep.ok, rep.reason_text
+    # Normalised to the canonical form, so the executed DDL never varies by model.
+    assert "USING" not in rep.execution_sql.upper()
+    assert '"created_at" DESC' in rep.execution_sql
+
+
+@pytest.mark.parametrize(
+    "method",
+    ["gin", "gist", "brin", "hash", "spgist", "GIST", "GIN"],
+)
+def test_rejects_any_non_btree_access_method(snapshot: SchemaSnapshot, method: str) -> None:
+    """Other methods change index semantics in ways nothing downstream reasons about."""
+    rep = check(f"CREATE INDEX ix ON orders USING {method} (status)", snapshot)
+    assert not rep.ok
+    assert "access method is not allowed" in rep.reason_text
+    assert "only btree is supported" in rep.reason_text
+
+
+def test_rejects_using_after_the_column_list(snapshot: SchemaSnapshot) -> None:
+    """That ordering is a genuine PostgreSQL syntax error, not a variant we accept.
+
+    PostgreSQL requires ``ON <table> USING <method> (<cols>)``; this is the exact
+    shape a model emitted during the Ollama rehearsal.
+    """
+    rep = check("CREATE INDEX ix ON orders (status) USING btree", snapshot)
+    assert not rep.ok
+    assert "could not be fully parsed" in rep.reason_text
+
+
+def test_using_btree_survives_with_predicate_and_include(snapshot: SchemaSnapshot) -> None:
+    rep = check(
+        "CREATE INDEX ix ON orders USING btree (created_at DESC) "
+        "INCLUDE (status) WHERE status = 'pending'",
+        snapshot,
+    )
+    assert rep.ok, rep.reason_text
+    assert "INCLUDE" in rep.execution_sql
+    assert "WHERE" in rep.execution_sql
+
+
 def test_execution_sql_is_never_the_model_string(snapshot: SchemaSnapshot) -> None:
     """Whatever the model wrote, the executed DDL is rebuilt from the AST."""
     rep = check("CREATE INDEX ix ON orders (status, created_at DESC)", snapshot)

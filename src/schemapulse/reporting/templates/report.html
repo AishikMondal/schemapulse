@@ -194,7 +194,13 @@
     <div class="attempt {% if a.verdict == 'verified' %}ok{% elif a.verdict in ['rejected','failed','blocked'] %}no{% else %}wait{% endif %}">
       <div><strong>Attempt {{ a.attempt }}</strong> · <span class="mono">{{ a.verdict|upper }}</span>
         {% if a.speedup %}· {{ '%.2f'|format(a.speedup) }}x{% endif %}
-        {% if a.candidate %}<div class="mono small" style="margin-top:5px">{{ a.candidate.statement }}</div>{% endif %}
+        {% if a.candidate %}
+        {% set shown = a.candidate.statement or a.candidate.candidate_sql %}
+        {% if shown %}<div class="mono small" style="margin-top:5px">{{ shown }}</div>{% endif %}
+        {% endif %}
+        {% if a.verdict == 'blocked' %}
+        <div class="small muted" style="margin-top:5px">proposed by the model, refused before execution — never benchmarked</div>
+        {% endif %}
         <div class="small" style="margin-top:5px">{{ a.reason }}</div>
         {% if a.safety_rejections %}
         <div class="small muted" style="margin-top:5px">safety: {{ a.safety_rejections|join(' · ') }}</div>

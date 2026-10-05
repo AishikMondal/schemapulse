@@ -227,17 +227,24 @@ REJECTED
 
 **What it refuses to do:** bank a 1.54x "win" when the plan shape is unchanged.
 
-If the model happens to write `USING btree`, the safety guard blocks every
+If the model names a *different* access method, the safety guard blocks every
 candidate before anything is measured, and the verdict is `FAILED` instead:
 
 ```
-✗ rejected safety guard rejected it: USING btree access method is not allowed
+✗ rejected safety guard rejected it: USING gin access method is not allowed; only btree is supported
 ```
 
-That is also correct, and arguably the better demo. SchemaPulse sets the access
-method itself; the model does not get to choose it, does not get to pick
-`TABLESPACE` or storage parameters, and does not get to write the statement that
-executes. Both paths exit `2`.
+That is also correct, and arguably the better demo. SchemaPulse does not get to
+choose between `GIN` and `GIST` semantics, `TABLESPACE`, or storage parameters,
+and the model does not get to write the statement that executes. Both paths exit
+`2`.
+
+An explicit `USING btree` is **accepted**, because `btree` is PostgreSQL's default
+and naming it changes nothing: the validated DDL is still rebuilt from the parsed
+AST, and the executed statement is the canonical form without the clause. Only
+`btree` is accepted this way; every other method is refused. Writing `USING` after
+the column list (`ON orders (status) USING btree`) is a genuine PostgreSQL syntax
+error and is refused as unparseable.
 
 **Say this out loud when you show it:** *"The model was wrong, the database said
 so, and the tool did not pretend otherwise."* That sentence is the project.
@@ -265,7 +272,8 @@ Re-run `diagnose` first if you want the report to match a specific provider.
 | `baseline timing spread was 51%` | noisy machine, not a bad index | the noise guard already handles it; quieter machine if it matters |
 | `finishReason=RECITATION` once | model declined that attempt | retried automatically; failure kept as evidence |
 | `finishReason=RECITATION` every attempt | model will not answer this prompt | `--provider fixture` |
-| `USING btree access method is not allowed` | guard, by design | expected; the tool chooses the access method |
+| `USING gin access method is not allowed` | model chose a non-default access method | expected; only `btree` is supported |
+| `candidate SQL could not be fully parsed` | usually `USING` written after the column list | prompt now shows the exact shape; `ON t (c)`, never `ON t (c) USING btree` |
 | `Ollama provider failed ... timed out` | 4B model on CPU is slow | raise `SCHEMAPULSE_OLLAMA_TIMEOUT_S`, or use fixture/gemini |
 | target and shadow URLs identical | refused on purpose | they must differ; that refusal is the safety invariant |
 

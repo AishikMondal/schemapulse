@@ -21,16 +21,21 @@ class OptimizationCandidate(BaseModel):
     Mirrors :class:`schemapulse.agent.schemas.OptimizationCandidate` but is the
     *post-validation* view: it carries the parsed statement that will actually
     be executed, not the raw text.
+
+    ``statement``, ``index_name`` and ``columns`` are empty when the candidate
+    was refused before it could be parsed.  A blocked candidate is still recorded
+    -- with the SQL the model actually proposed -- because a report row that
+    cannot be traced back to a proposal is not evidence of anything.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     hypothesis: str
     candidate_sql: str
-    statement: str
-    index_name: str
-    table: str
-    columns: list[str]
+    statement: str = ""
+    index_name: str = ""
+    table: str = ""
+    columns: list[str] = Field(default_factory=list)
     predicate: str | None = None
     unique: bool = False
     include_columns: list[str] = Field(default_factory=list)

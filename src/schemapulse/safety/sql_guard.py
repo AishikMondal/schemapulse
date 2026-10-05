@@ -275,6 +275,12 @@ def parse_readonly_query(sql: str) -> ParsedQuery:
 # --------------------------------------------------------------------------- #
 # 2. generated DDL
 # --------------------------------------------------------------------------- #
+
+#: The only access method a candidate may name.  It is also the default, so
+#: ``sanitize_index_sql`` renders the canonical form without the clause.
+ALLOWED_ACCESS_METHOD = "btree"
+
+
 @dataclass(frozen=True, slots=True)
 class IndexCandidate:
     """A structurally valid, allow-listed ``CREATE INDEX`` statement."""
@@ -445,9 +451,18 @@ def parse_index_ddl(sql: str) -> IndexCandidate:
     if params.args.get("tablespace") is not None:
         raise UnsafeQueryError("index TABLESPACE is not allowed")
     if params.args.get("using") is not None:
+        # ``btree`` is PostgreSQL's default access method, so naming it explicitly
+        # is semantically identical to omitting the clause -- rejecting it would
+        # fail a correct candidate on a technicality.  Every other method changes
+        # what the index does (operator classes, ordering assumptions, lossy
+        # equality) in ways nothing downstream reasons about, so they stay blocked.
         using = params.args["using"]
         name = using.name if isinstance(using, exp.Identifier) else str(using)
-        raise UnsafeQueryError(f"USING {name} access method is not allowed")
+        if name.lower() != ALLOWED_ACCESS_METHOD:
+            raise UnsafeQueryError(
+                f"USING {name} access method is not allowed; only "
+                f"{ALLOWED_ACCESS_METHOD} is supported"
+            )
     if params.args.get("partition_by"):
         raise UnsafeQueryError("partitioned indexes are not supported")
 

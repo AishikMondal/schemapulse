@@ -125,6 +125,50 @@ def feedback_for(candidate: Any) -> ExperimentFeedback:
 
 
 # --------------------------------------------------------------------------- #
+# feedback rendering must not invent measurements
+# --------------------------------------------------------------------------- #
+def test_blocked_feedback_reports_no_measurement() -> None:
+    """A refused candidate never ran, so the prompt must not print fake timings.
+
+    Rendering ``0.00 ms -> 0.00 ms (speedup 0.00x)`` for a candidate that was
+    never benchmarked puts invented numbers in front of the model.
+    """
+    from schemapulse.agent.prompts import render_prompt
+
+    blocked = ExperimentFeedback(
+        attempt=1,
+        candidate_sql="CREATE INDEX ix ON orders USING gin (status)",
+        verdict="blocked",
+        baseline_median_ms=0.0,
+        candidate_median_ms=0.0,
+        speedup=0.0,
+        min_speedup=0.0,
+        baseline_plan_shape="not executed (blocked before benchmarking)",
+        candidate_plan_shape="not executed (blocked before benchmarking)",
+        notes="safety guard rejected it: USING gin access method is not allowed",
+    )
+    text = render_prompt(context(ORDERS_SQL), feedback=[blocked])
+    assert "not measured" in text
+    assert "0.00 ms" not in text
+    assert "0.00x" not in text
+    assert "USING gin" in text, "the model must be shown what it actually wrote"
+
+
+def test_measured_feedback_still_reports_timings() -> None:
+    """The measured path is unchanged: real numbers still reach the prompt."""
+    from schemapulse.agent.prompts import render_prompt
+
+    text = render_prompt(context(ORDERS_SQL), feedback=[feedback_for(_Fake())])
+    assert "147.16 ms" in text
+    assert "96.00x" in text
+    assert "required >= 1.20x" in text
+
+
+class _Fake:
+    candidate_sql = "CREATE INDEX ix ON orders (status)"
+
+
+# --------------------------------------------------------------------------- #
 # provider contract
 # --------------------------------------------------------------------------- #
 def test_provider_declares_itself_offline() -> None:

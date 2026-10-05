@@ -44,6 +44,11 @@ ALLOWED OUTPUT (hard requirement — enforced by a validator, but do not waste \
 an attempt on a violation):
   * Exactly one JSON object matching the supplied schema.
   * `candidate_sql` must be ONE `CREATE INDEX` statement and nothing else.
+  * Follow this shape EXACTLY, filling in the parts:
+      CREATE INDEX <name> ON <table> ( <column> [DESC] [, ...] )
+    The column list comes directly after the table. If you want to name the access
+    method, it goes BEFORE the column list -- `ON <table> USING btree (<column>)` --
+    never after it. Omitting it is fine; it defaults to btree.
   * No INSERT/UPDATE/DELETE, no DROP, no ALTER TABLE, no GRANT/REVOKE, no COPY, \
 no CREATE EXTENSION, no multiple statements, no semicolon-separated SQL.
   * Index keys must be PLAIN COLUMNS. Expression keys such as `lower(email)` are \
@@ -101,17 +106,25 @@ def render_prompt(
     ]
 
     if feedback:
-        parts.extend(["", "=== MEASURED RESULTS FROM YOUR PREVIOUS ATTEMPT(S) ==="])
+        parts.extend(["", "=== RESULTS FROM YOUR PREVIOUS ATTEMPT(S) ==="])
         for fb in feedback:
             block = [
                 f"Attempt {fb.attempt} — verdict: {fb.verdict.upper()}",
                 f"  candidate_sql : {fb.candidate_sql}",
                 f"  baseline plan : {fb.baseline_plan_shape}",
-                f"  measured      : {fb.baseline_median_ms:.2f} ms -> "
-                f"{fb.candidate_median_ms:.2f} ms  (speedup {fb.speedup:.2f}x, "
-                f"required >= {fb.min_speedup:.2f}x)",
-                f"  candidate plan: {fb.candidate_plan_shape}",
             ]
+            if fb.verdict == "blocked":
+                # A refused candidate never ran, so there is no timing to report.
+                # Printing 0.00 ms -> 0.00 ms here would put invented numbers in
+                # front of the model under a heading that claims they were measured.
+                block.append("  measured      : not measured (refused before execution)")
+            else:
+                block.append(
+                    f"  measured      : {fb.baseline_median_ms:.2f} ms -> "
+                    f"{fb.candidate_median_ms:.2f} ms  (speedup {fb.speedup:.2f}x, "
+                    f"required >= {fb.min_speedup:.2f}x)"
+                )
+            block.append(f"  candidate plan: {fb.candidate_plan_shape}")
             if fb.notes:
                 block.append(f"  notes         : {fb.notes}")
             parts.append("\n".join(block))
@@ -123,13 +136,15 @@ def render_prompt(
                 )
             elif fb.verdict == "blocked":
                 parts.append(
-                    "  ACTION: your SQL was refused by the safety validator. Emit only a "
-                    "single plain CREATE INDEX statement with plain column keys."
+                    "  ACTION: your SQL was refused by the safety validator and was "
+                    "never executed. Re-emit it as exactly "
+                    "CREATE INDEX <name> ON <table> (<column>) with the column list "
+                    "immediately after the table name, and change the index itself."
                 )
         parts.extend(
             [
                 "",
-                "Do not repeat a candidate that was already measured and rejected.",
+                "Do not repeat a candidate that was already measured or refused.",
                 "Produce a DIFFERENT index definition.",
             ]
         )

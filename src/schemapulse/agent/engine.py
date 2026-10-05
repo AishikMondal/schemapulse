@@ -33,6 +33,7 @@ from typing import Any
 from schemapulse.agent.context import DiagnosticContext
 from schemapulse.agent.providers.base import GemmaProvider, GemmaResponse, default_response_schema
 from schemapulse.agent.schemas import ExperimentFeedback
+from schemapulse.agent.schemas import OptimizationCandidate as RawCandidate
 from schemapulse.db.connection import DbTarget
 from schemapulse.errors import (
     ModelError,
@@ -202,9 +203,13 @@ class OptimizationAgent:
                         },
                     )
                     if not validated.ok or validated.statement is None:
+                        # The candidate is recorded so each blocked row stays
+                        # identifiable in the report, and fed back to the model
+                        # so it does not re-propose the same refused SQL.
                         run.attempts.append(
                             AttemptOutcome(
                                 attempt=attempt,
+                                candidate=_recorded_proposal(attempt, raw),
                                 verdict=Verdict.BLOCKED,
                                 reason=validated.reason_text,
                                 provider=self.provider.name,
@@ -212,6 +217,7 @@ class OptimizationAgent:
                                 safety_rejections=list(validated.reasons),
                             )
                         )
+                        run.feedback.append(_blocked_feedback(attempt, raw, validated.reason_text))
                         continue
 
                     statement = validated.statement
@@ -219,6 +225,7 @@ class OptimizationAgent:
                         run.attempts.append(
                             AttemptOutcome(
                                 attempt=attempt,
+                                candidate=_recorded_proposal(attempt, raw),
                                 verdict=Verdict.BLOCKED,
                                 reason="duplicate of an already-tested candidate",
                                 provider=self.provider.name,
@@ -371,6 +378,49 @@ def _feedback_from(
         baseline_plan_shape=baseline_plan.plan_shape if baseline_plan else "n/a",
         candidate_plan_shape=candidate_plan.plan_shape if candidate_plan else "n/a",
         notes=rejection_reason(experiment),
+    )
+
+
+def _recorded_proposal(attempt: int, raw: RawCandidate) -> OptimizationCandidate:
+    """The recorded view of a proposal that never became an executable statement.
+
+    Used for candidates the validator refused or recognised as a repeat.  Only the
+    text the model actually produced is carried over; ``statement`` stays empty
+    because no statement was ever built from it.
+    """
+    return OptimizationCandidate(
+        hypothesis=raw.hypothesis,
+        candidate_sql=raw.candidate_sql,
+        expected_plan_change=raw.expected_plan_change,
+        reasoning_summary=raw.reasoning_summary,
+        risk_notes=raw.risk_notes,
+        model_confidence=raw.confidence,
+        attempt=attempt,
+    )
+
+
+def _blocked_feedback(
+    attempt: int,
+    candidate: RawCandidate,
+    reason: str,
+) -> ExperimentFeedback:
+    """Tell the model exactly which SQL was refused, and why.
+
+    A blocked candidate is never executed, so there is no measurement to report.
+    Leaving it out of the feedback loop left the model with no record of the
+    refusal and invited it to re-propose the same statement on the next attempt.
+    """
+    return ExperimentFeedback(
+        attempt=attempt,
+        candidate_sql=candidate.candidate_sql,
+        verdict=Verdict.BLOCKED.value,
+        baseline_median_ms=0.0,
+        candidate_median_ms=0.0,
+        speedup=0.0,
+        min_speedup=0.0,
+        baseline_plan_shape="not executed (blocked before benchmarking)",
+        candidate_plan_shape="not executed (blocked before benchmarking)",
+        notes=reason,
     )
 
 

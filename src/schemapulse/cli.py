@@ -325,13 +325,16 @@ def _print_result(result: Any, report_path: Path | None = None) -> None:
         att = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
         att.add_column("#")
         att.add_column("verdict")
+        att.add_column("candidate SQL", overflow="fold", max_width=44)
         att.add_column("speedup")
         att.add_column("reason", overflow="fold")
-        for a in result.attempts:
+        for i, a in enumerate(result.attempts, start=1):
             sp = f"{a.speedup:.2f}x" if a.speedup else "—"
+            sql = a.candidate.candidate_sql if a.candidate is not None else ""
             att.add_row(
-                str(a.attempt),
+                f"{a.attempt}.{i}" if len(result.attempts) > 1 else str(a.attempt),
                 f"[{_verdict_style(a.verdict.value)}]{a.verdict.value.upper()}[/{_verdict_style(a.verdict.value)}]",
+                sql,
                 sp,
                 a.reason,
             )
