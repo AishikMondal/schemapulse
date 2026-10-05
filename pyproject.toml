@@ -70,6 +70,7 @@ packages = ["src/schemapulse"]
 include = [
   "src/schemapulse",
   "demo",
+  "docs",
   "tests",
   "README.md",
   "ARCHITECTURE.md",

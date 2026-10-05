@@ -192,7 +192,8 @@ pytest tests -q
 Integration tests are marked and skipped automatically when the demo databases
 are not reachable, so `pytest tests -q` is safe to run anywhere.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the module map,
+See [docs/DEMO.md](docs/DEMO.md) for the demo runbook and troubleshooting,
+[ARCHITECTURE.md](ARCHITECTURE.md) for the module map,
 [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow, and
 [ROADMAP.md](ROADMAP.md) for what is deliberately not built yet.
 
